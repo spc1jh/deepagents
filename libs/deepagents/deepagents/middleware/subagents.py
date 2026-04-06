@@ -178,7 +178,8 @@ class TaskToolSchema(BaseModel):
             "Leave empty or omit if using spawn_config to create a dynamic subagent."
         ),
     )
-    spawn_config: NotRequired[SpawnAgentConfig] = Field(
+    spawn_config: SpawnAgentConfig | None = Field(
+        default=None,
         description=(
             "Optional configuration to dynamically spawn a new subagent on-the-fly. "
             "If provided, this takes precedence over subagent_type. "

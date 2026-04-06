@@ -6,6 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
+# personal
+.deepagents/
+.deepagents/*
+
+
 # Distribution / packaging
 .Python
 build/
