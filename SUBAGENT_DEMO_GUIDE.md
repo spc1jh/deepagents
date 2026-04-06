@@ -26,30 +26,11 @@ Ready to code! What would you like to build?
 
 ## 🎯 SubAgent 사용법
 
-### 방법 1️⃣: `/task` 슬래시 명령어 사용 (명시적)
+### 방법 1️⃣: 자동 SubAgent 호출 (권장)
 
-CLI 입력창에서:
-```
-입력: /task
-```
+메인 에이전트에게 직접 요청하면, 에이전트가 **필요시 자동으로** subagent를 호출합니다.
 
-그러면 다음 정보를 묻습니다:
-- `Description`: 작업 설명
-- `subagent_type`: 에이전트 종류 선택 또는 비워두기
-- `spawn_config`: 동적 설정 (선택사항)
-
-**예시:**
-```
-/task
-
-Description: 파이썬에서 리스트와 배열의 차이점을 자세히 설명해주세요. 성능, 사용 사례, 메모리 관리 등을 포함해서요.
-
-Agent type: general-purpose
-```
-
-### 방법 2️⃣: 일반 요청으로 자동 SubAgent 호출 (암시적)
-
-메인 에이전트에게 직접 요청하면, 에이전트가 필요시 자동으로 subagent를 호출합니다:
+CLI 입력창에서 복잡한 작업을 요청하면:
 
 ```
 입력: 세 가지 프로그래밍 언어를 비교해주세요: Python, Go, Rust
@@ -217,6 +198,76 @@ A: CLI 화면의 "Task Result" 섹션에서 확인할 수 있습니다.
 
 **Q4: 여러 SubAgent를 동시에 실행할 수 있나요?**
 A: 네! 메인 에이전트가 독립적인 작업들을 감지하면 여러 SubAgent를 **병렬로** 실행합니다.
+
+**Q5: SubAgent의 모델은 어떤 것을 사용하나요?**
+A: SubAgent는 **메인 에이전트와 동일한 모델**을 사용합니다.
+- 기본값: `openai:gpt-4o`
+- CLI에서 설정한 모델: 설정한 그 모델 사용
+- 커스텀 모델: SpawnAgentConfig에서 명시적으로 지정 가능
+
+**Q6: SubAgent도 메인 에이전트와 같은 권한을 가지나요?**
+A: 기본적으로는 동일한 도구와 권한을 가집니다. 다만 시스템 프롬프트와 지시사항이 다를 수 있습니다.
+
+**Q7: SubAgent 생성/삭제 과정은 자동인가요?**
+A: 네! 완전히 자동입니다.
+- 생성: 필요시 자동 생성
+- 실행: 독립적으로 작업 수행
+- 삭제: 작업 완료 후 자동 소멸 (메모리 정리)
+
+**Q8: 메인 모델을 변경하면 SubAgent도 변경되나요?**
+A: **네! 자동으로 변경됩니다.**
+
+메인 에이전트의 모델을 `/model` 명령어로 변경하면:
+```bash
+/model gpt-4o           # 메인 모델 변경
+→ SubAgent도 gpt-4o 사용
+
+/model claude-3-5-sonnet  # 메인 모델 변경
+→ SubAgent도 claude-3-5-sonnet 사용
+```
+
+**동작 방식:**
+SubAgent는 메인 에이전트의 모델 설정을 **동적으로 참조**하므로,
+메인 모델이 변경되면 새로 생성되는 모든 SubAgent가 자동으로 같은 모델을 사용합니다.
+
+---
+
+**Q9: SubAgent가 메인 에이전트와 다른 모델을 사용하게 하려면?**
+A: **CLI에서는 현재 불가능합니다** (메인 에이전트와 동일한 모델 사용).
+하지만 다음 두 가지 방법으로 확장할 수 있습니다:
+
+### 방법 1: Python 코드로 커스텀 SubAgent 정의 (권장)
+
+```python
+from deepagents import create_deep_agent
+from deepagents.middleware import SubAgentMiddleware
+
+# 메인 에이전트용 모델
+main_model = "openai:gpt-4o"
+
+# SubAgent용 모델 (더 경제적인 모델)
+subagent_config = {
+    "name": "analyzer",
+    "description": "분석 전문가",
+    "system_prompt": "당신은 데이터 분석 전문가입니다.",
+    "model": "openai:gpt-4o-mini",  # ← 다른 모델 지정
+    "tools": [search_tool, analysis_tool],
+}
+
+agent = create_deep_agent(
+    model=main_model,
+    middleware=[
+        SubAgentMiddleware(
+            backend=backend,
+            subagents=[subagent_config],
+        )
+    ],
+)
+```
+
+**비용 최적화 팁:**
+- 메인 에이전트: 정교한 모델 (예: `gpt-4o`)
+- SubAgent: 경제적 모델 (예: `gpt-4o-mini`, `claude-3-haiku`)
 
 ---
 
