@@ -15,6 +15,7 @@ import webbrowser
 from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -2844,6 +2845,8 @@ class DeepAgentsApp(App):
                 exclusive=True,
                 group="startup-skill-discovery",
             )
+        elif cmd == "/memory" or cmd.startswith("/memory "):
+            await self._handle_memory_command(command)
         elif cmd.startswith("/skill:"):
             await self._handle_skill_command(command)
         else:
@@ -2853,6 +2856,161 @@ class DeepAgentsApp(App):
         # Anchor to bottom so command output stays visible
         with suppress(NoMatches, ScreenStackError):
             self.query_one("#chat", VerticalScroll).anchor()
+
+    async def _handle_memory_command(self, command: str) -> None:
+        """Handle memory management commands.
+
+        Supports:
+        - `/memory add "Learning text"` - Add a learning
+        - `/memory search "query"` - Search learnings
+        - `/memory profile` - View/edit developer profile
+        - `/memory export` - Export memory to JSON
+        - `/memory stats` - View memory statistics
+
+        Args:
+            command: The full command string (e.g., `/memory add "Python best practice"`)
+        """
+        from deepagents_cli.memory_manager import MemoryManager
+
+        await self._mount_message(UserMessage(command))
+
+        cmd = command.lower().strip()
+        args = command.strip()[len("/memory") :].strip()
+
+        try:
+            manager = MemoryManager()
+
+            if not args:
+                await self._mount_message(
+                    AppMessage(
+                        "Usage:\n"
+                        "  /memory add \"Learning text\"\n"
+                        "  /memory search \"query\"\n"
+                        "  /memory profile\n"
+                        "  /memory export\n"
+                        "  /memory stats"
+                    )
+                )
+                return
+
+            # Parse subcommand
+            parts = args.split(maxsplit=1)
+            subcommand = parts[0].lower()
+            subargs = parts[1] if len(parts) > 1 else ""
+
+            if subcommand == "add":
+                # /memory add "Learning text"
+                if not subargs:
+                    await self._mount_message(AppMessage("Usage: /memory add \"Learning text\""))
+                    return
+
+                # Extract quoted or unquoted text
+                if subargs.startswith('"') and subargs.endswith('"'):
+                    text = subargs[1:-1]
+                else:
+                    text = subargs
+
+                if not text.strip():
+                    await self._mount_message(AppMessage("Learning text cannot be empty."))
+                    return
+
+                learning_id = manager.add_learning(
+                    content=text,
+                    source="user_feedback",
+                    category="best_practice",
+                    tags=["manual"],
+                    session_id=self._lc_thread_id,
+                )
+                await self._mount_message(
+                    AppMessage(f"✓ Learning added (ID: {learning_id[:8]})")
+                )
+
+            elif subcommand == "search":
+                # /memory search "query"
+                if not subargs:
+                    await self._mount_message(AppMessage("Usage: /memory search \"query\""))
+                    return
+
+                # Extract query
+                if subargs.startswith('"') and subargs.endswith('"'):
+                    query = subargs[1:-1]
+                else:
+                    query = subargs
+
+                results = manager.search_learnings(query, limit=5)
+                if not results:
+                    await self._mount_message(AppMessage(f"No learnings found matching: {query}"))
+                    return
+
+                output = f"Found {len(results)} learnings:\n\n"
+                for i, learning in enumerate(results, 1):
+                    date = learning["created_at"][:10]
+                    output += (
+                        f"{i}. [{date}] {learning['content'][:80]}\n"
+                        f"   Category: {learning['category']}\n\n"
+                    )
+
+                await self._mount_message(AppMessage(output.rstrip()))
+
+            elif subcommand == "profile":
+                # /memory profile - View current profile
+                profile = manager.load_or_create_profile()
+                profile_text = (
+                    f"Developer Profile:\n"
+                    f"  Name: {profile.get('name', 'Unknown')}\n"
+                    f"  Role: {profile.get('role', 'Unknown')}\n"
+                    f"  Experience: {profile.get('experience_level', 'Unknown')}\n"
+                    f"  Languages: {', '.join(profile.get('primary_languages', []))}\n"
+                    f"  Frameworks: {', '.join(profile.get('preferred_frameworks', []))}\n"
+                    f"  Updated: {profile.get('updated_at', 'Never')[:10]}"
+                )
+                await self._mount_message(AppMessage(profile_text))
+
+            elif subcommand == "export":
+                # /memory export - Export to JSON
+                export_path = (
+                    Path.home() / ".deepagents" / f"memory_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                )
+
+                def _export() -> None:
+                    manager.export_memory(export_path)
+
+                await asyncio.to_thread(_export)
+                await self._mount_message(
+                    AppMessage(f"✓ Memory exported to: {export_path}")
+                )
+
+            elif subcommand == "stats":
+                # /memory stats - Show statistics
+                def _get_stats() -> dict:
+                    return manager.get_memory_stats()
+
+                stats = await asyncio.to_thread(_get_stats)
+                stats_text = (
+                    f"Memory Statistics:\n"
+                    f"  Learnings: {stats['learnings_count']}\n"
+                    f"  Entities: {stats['entities_count']}\n"
+                    f"  Relationships: {stats['relationships_count']}\n"
+                    f"  Database Size: {stats['db_size_mb']:.2f} MB\n"
+                    f"  Location: {stats['memory_dir']}"
+                )
+
+                if stats["learnings_by_category"]:
+                    stats_text += "\n\n  By Category:\n"
+                    for cat, count in stats["learnings_by_category"].items():
+                        stats_text += f"    {cat}: {count}\n"
+
+                await self._mount_message(AppMessage(stats_text))
+
+            else:
+                await self._mount_message(
+                    AppMessage(f"Unknown subcommand: {subcommand}\n"
+                        "Usage: /memory add|search|profile|export|stats")
+                )
+
+        except Exception as exc:
+            logger.exception("Memory command failed")
+            await self._mount_message(ErrorMessage(f"Memory error: {exc}"))
 
     async def _handle_skill_command(self, command: str) -> None:
         """Handle a `/skill:<name>` command by loading and invoking a skill.

@@ -78,6 +78,12 @@ COMMANDS: tuple[SlashCommand, ...] = (
         bypass_tier=BypassTier.IMMEDIATE_UI,
     ),
     SlashCommand(
+        name="/memory",
+        description="Manage developer memory (search, add, profile, export)",
+        bypass_tier=BypassTier.QUEUED,
+        hidden_keywords="learning knowledge profile",
+    ),
+    SlashCommand(
         name="/offload",
         description="Free up context window space by offloading older messages",
         bypass_tier=BypassTier.QUEUED,

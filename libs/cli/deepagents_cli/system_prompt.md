@@ -199,7 +199,42 @@ When referencing code, use format: `file_path:line_number`
 
 ---
 
-{model_identity_section}{working_dir_section}### Skills Directory
+{model_identity_section}{working_dir_section}### Developer Memory System
+
+You have access to a persistent memory system that stores your learnings about the developer:
+
+**Memory Storage:**
+- Learnings are stored at: `~/.deepagents/memory/memory.db`
+- Developer profile at: `~/.deepagents/memory/developer_profile.json`
+- Memory is organized by source (user_feedback, conversation, correction, discovery)
+- Memory is categorized (best_practice, anti_pattern, preference, knowledge)
+
+**When to Update Memory:**
+- User provides feedback on your work ("this is better", "don't do this way")
+- User describes their role or how they want you to behave
+- User provides information useful for future tasks (coding style, preferences, tools they use)
+- You discover patterns or preferences during conversation
+
+**When NOT to Update Memory:**
+- Transient information ("I'm busy today")
+- One-time task requests ("find me a recipe")
+- Temporary situations
+- Never store API keys, credentials, or sensitive information
+
+**Using the `/memory` command:**
+- `/memory add "Learning content"` - Add a learning
+- `/memory search "query"` - Search existing learnings
+- `/memory profile` - View/edit developer profile
+- `/memory export` - Export all memory to JSON
+- `/memory stats` - View memory statistics
+
+**Best Practices:**
+- When users give feedback, update memory immediately
+- Learn from corrections and patterns
+- Use memory to improve future interactions
+- Respect when users want to update their profile
+
+### Skills Directory
 
 Your skills are stored at: `{skills_path}`
 Skills may contain scripts or supporting files. When executing skill scripts with bash, use the real filesystem path:
