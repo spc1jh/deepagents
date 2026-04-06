@@ -2,6 +2,7 @@
 
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, NotRequired, TypedDict, cast
+import uuid
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware, InterruptOnConfig
@@ -126,6 +127,39 @@ DEFAULT_SUBAGENT_PROMPT = "In order to complete the objective that the user asks
 _EXCLUDED_STATE_KEYS = {"messages", "todos", "structured_response", "skills_metadata", "memory_contents"}
 
 
+class SpawnAgentConfig(TypedDict):
+    """Configuration for dynamically spawning a new subagent.
+
+    Used with the `spawn_config` parameter of the `task` tool to create
+    ephemeral subagents on-the-fly without pre-defining them.
+
+    Required fields:
+        name: Unique identifier for this spawned subagent.
+        role: One-line description of what this subagent does.
+        instructions: Detailed system prompt for the subagent.
+        tools: List of tool names the subagent should have access to.
+
+    Optional fields:
+        model: Override model in 'provider:model-name' format.
+            If not provided, inherits from the parent agent.
+    """
+
+    name: str
+    """Unique identifier for this spawned subagent."""
+
+    role: str
+    """One-line description of the subagent's role."""
+
+    instructions: str
+    """Detailed system prompt for the subagent."""
+
+    tools: list[str]
+    """List of tool names the subagent should have access to."""
+
+    model: NotRequired[str]
+    """Optional model override in 'provider:model-name' format."""
+
+
 class TaskToolSchema(BaseModel):
     """Input schema for the `task` tool."""
 
@@ -135,7 +169,20 @@ class TaskToolSchema(BaseModel):
             "Include all necessary context and specify the expected output format."
         )
     )
-    subagent_type: str = Field(description=("The type of subagent to use. Must be one of the available agent types listed in the tool description."))
+    subagent_type: str = Field(
+        default="",
+        description=(
+            "The type of subagent to use. Must be one of the available agent types listed in the tool description. "
+            "Leave empty or omit if using spawn_config to create a dynamic subagent."
+        ),
+    )
+    spawn_config: NotRequired[SpawnAgentConfig] = Field(
+        description=(
+            "Optional configuration to dynamically spawn a new subagent on-the-fly. "
+            "If provided, this takes precedence over subagent_type. "
+            "Use this to create ephemeral subagents for specialized tasks without pre-defining them."
+        )
+    )
 
 
 TASK_TOOL_DESCRIPTION = """Launch an ephemeral subagent to handle complex, multi-step independent tasks with isolated context windows.
@@ -287,6 +334,128 @@ GENERAL_PURPOSE_SUBAGENT: SubAgent = {
 }
 
 
+class DynamicSubAgentRegistry:
+    """Registry for managing dynamically spawned subagents.
+
+    This registry allows agents to create ephemeral subagents on-the-fly
+    using SpawnAgentConfig, without pre-defining them in the middleware setup.
+
+    Attributes:
+        _spawned_agents: Cache of spawned agents by name.
+        _backend: Backend for file operations.
+        _parent_model: Default model to use if not specified in spawn config.
+        _parent_tools: Default tools to use if not specified in spawn config.
+    """
+
+    def __init__(
+        self,
+        backend: BackendProtocol | BackendFactory,
+        parent_model: str | BaseChatModel = "openai:gpt-4o",
+        parent_tools: Sequence[BaseTool | Callable | dict[str, Any]] | None = None,
+    ) -> None:
+        """Initialize the registry.
+
+        Args:
+            backend: Backend for file operations.
+            parent_model: Default model for spawned agents.
+            parent_tools: Default tools for spawned agents.
+        """
+        self._spawned_agents: dict[str, Runnable] = {}
+        self._backend = backend
+        self._parent_model = parent_model
+        self._parent_tools = parent_tools or []
+
+    def spawn(
+        self,
+        config: SpawnAgentConfig,
+    ) -> tuple[str, Runnable]:
+        """Spawn a new ephemeral subagent from a configuration.
+
+        Args:
+            config: SpawnAgentConfig with name, role, instructions, tools, and optional model.
+
+        Returns:
+            Tuple of (agent_name, runnable).
+
+        Raises:
+            ValueError: If agent with same name already exists in registry.
+        """
+        name = config["name"]
+
+        # Check if already spawned
+        if name in self._spawned_agents:
+            return name, self._spawned_agents[name]
+
+        # Resolve model
+        from deepagents._models import resolve_model  # noqa: PLC0415
+
+        model_spec = config.get("model") or self._parent_model
+        model = resolve_model(model_spec) if isinstance(model_spec, str) else model_spec
+
+        # Resolve tools (by name from parent tools)
+        requested_tools = config.get("tools", [])
+        resolved_tools = self._resolve_tools_by_name(requested_tools)
+
+        # Create agent
+        runnable = create_agent(
+            model,
+            system_prompt=config["instructions"],
+            tools=resolved_tools,
+            middleware=[],
+            name=name,
+        )
+
+        self._spawned_agents[name] = runnable
+        return name, runnable
+
+    def get(self, name: str) -> Runnable | None:
+        """Retrieve a spawned agent by name.
+
+        Args:
+            name: Name of the spawned agent.
+
+        Returns:
+            Runnable if found, None otherwise.
+        """
+        return self._spawned_agents.get(name)
+
+    def list_active(self) -> list[str]:
+        """List all active spawned agent names.
+
+        Returns:
+            List of spawned agent names.
+        """
+        return list(self._spawned_agents.keys())
+
+    def _resolve_tools_by_name(self, tool_names: list[str]) -> list[BaseTool]:
+        """Resolve tool names to actual tool objects.
+
+        Args:
+            tool_names: List of tool names to resolve.
+
+        Returns:
+            List of resolved tools.
+        """
+        # Convert parent tools to searchable format
+        parent_tools_dict: dict[str, BaseTool] = {}
+
+        for tool in self._parent_tools:
+            if isinstance(tool, BaseTool):
+                parent_tools_dict[tool.name] = tool
+            elif isinstance(tool, dict):
+                # Assume dict has 'name' key
+                if "name" in tool:
+                    parent_tools_dict[tool["name"]] = tool  # type: ignore
+
+        # Filter tools by requested names
+        resolved = []
+        for tool_name in tool_names:
+            if tool_name in parent_tools_dict:
+                resolved.append(parent_tools_dict[tool_name])
+
+        return resolved
+
+
 class _SubagentSpec(TypedDict):
     """Internal spec for building the task tool."""
 
@@ -298,6 +467,7 @@ class _SubagentSpec(TypedDict):
 def _build_task_tool(  # noqa: C901
     subagents: list[_SubagentSpec],
     task_description: str | None = None,
+    dynamic_registry: "DynamicSubAgentRegistry | None" = None,
 ) -> BaseTool:
     """Create a task tool from pre-built subagent graphs.
 
@@ -305,9 +475,10 @@ def _build_task_tool(  # noqa: C901
         subagents: List of subagent specs containing name, description, and runnable.
         task_description: Custom description for the task tool. If `None`,
             uses default template. Supports `{available_agents}` placeholder.
+        dynamic_registry: Optional registry for dynamically spawned subagents.
 
     Returns:
-        A StructuredTool that can invoke subagents by type.
+        A StructuredTool that can invoke subagents by type or via spawn_config.
     """
     # Build the graphs dict and descriptions from the unified spec list
     subagent_graphs: dict[str, Runnable] = {spec["name"]: spec["runnable"] for spec in subagents}
@@ -351,30 +522,74 @@ def _build_task_tool(  # noqa: C901
 
     def task(
         description: str,
-        subagent_type: str,
-        runtime: ToolRuntime,
+        subagent_type: str = "",
+        runtime: ToolRuntime | None = None,
+        spawn_config: SpawnAgentConfig | None = None,
     ) -> str | Command:
+        """Execute a task using a pre-defined or dynamically spawned subagent."""
+        if not runtime:
+            return "Runtime is required for task invocation"
+
+        if not runtime.tool_call_id:
+            return "Tool call ID is required for task invocation"
+
+        # Handle dynamic spawn_config first (takes precedence)
+        if spawn_config and dynamic_registry:
+            try:
+                agent_name, subagent_runnable = dynamic_registry.spawn(spawn_config)
+                subagent_state = {k: v for k, v in runtime.state.items() if k not in _EXCLUDED_STATE_KEYS}
+                subagent_state["messages"] = [HumanMessage(content=description)]
+                result = subagent_runnable.invoke(subagent_state)
+                return _return_command_with_state_update(result, runtime.tool_call_id)
+            except Exception as e:  # noqa: BLE001
+                return f"Failed to spawn dynamic subagent: {str(e)}"
+
+        # Fall back to pre-defined subagent_type
+        if not subagent_type:
+            allowed_types = ", ".join([f"`{k}`" for k in subagent_graphs])
+            return f"Either subagent_type or spawn_config is required. Available types: {allowed_types}"
+
         if subagent_type not in subagent_graphs:
             allowed_types = ", ".join([f"`{k}`" for k in subagent_graphs])
             return f"We cannot invoke subagent {subagent_type} because it does not exist, the only allowed types are {allowed_types}"
-        if not runtime.tool_call_id:
-            value_error_msg = "Tool call ID is required for subagent invocation"
-            raise ValueError(value_error_msg)
+
         subagent, subagent_state = _validate_and_prepare_state(subagent_type, description, runtime)
         result = subagent.invoke(subagent_state)
         return _return_command_with_state_update(result, runtime.tool_call_id)
 
     async def atask(
         description: str,
-        subagent_type: str,
-        runtime: ToolRuntime,
+        subagent_type: str = "",
+        runtime: ToolRuntime | None = None,
+        spawn_config: SpawnAgentConfig | None = None,
     ) -> str | Command:
+        """(async) Execute a task using a pre-defined or dynamically spawned subagent."""
+        if not runtime:
+            return "Runtime is required for task invocation"
+
+        if not runtime.tool_call_id:
+            return "Tool call ID is required for task invocation"
+
+        # Handle dynamic spawn_config first (takes precedence)
+        if spawn_config and dynamic_registry:
+            try:
+                agent_name, subagent_runnable = dynamic_registry.spawn(spawn_config)
+                subagent_state = {k: v for k, v in runtime.state.items() if k not in _EXCLUDED_STATE_KEYS}
+                subagent_state["messages"] = [HumanMessage(content=description)]
+                result = await subagent_runnable.ainvoke(subagent_state)
+                return _return_command_with_state_update(result, runtime.tool_call_id)
+            except Exception as e:  # noqa: BLE001
+                return f"Failed to spawn dynamic subagent: {str(e)}"
+
+        # Fall back to pre-defined subagent_type
+        if not subagent_type:
+            allowed_types = ", ".join([f"`{k}`" for k in subagent_graphs])
+            return f"Either subagent_type or spawn_config is required. Available types: {allowed_types}"
+
         if subagent_type not in subagent_graphs:
             allowed_types = ", ".join([f"`{k}`" for k in subagent_graphs])
             return f"We cannot invoke subagent {subagent_type} because it does not exist, the only allowed types are {allowed_types}"
-        if not runtime.tool_call_id:
-            value_error_msg = "Tool call ID is required for subagent invocation"
-            raise ValueError(value_error_msg)
+
         subagent, subagent_state = _validate_and_prepare_state(subagent_type, description, runtime)
         result = await subagent.ainvoke(subagent_state)
         return _return_command_with_state_update(result, runtime.tool_call_id)
