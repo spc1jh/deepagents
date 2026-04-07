@@ -81,7 +81,6 @@ libs/deepagents/deepagents/middleware/
                │
 ┌──────────────▼──────────────────────┐
 │   create_agent() (LangChain)         │
-│   - 에이전트 인스턴스 생성          │
 └─────────────────────────────────────┘
 ```
 

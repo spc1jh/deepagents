@@ -196,7 +196,295 @@ def send_email(to: str, msg: str, *, priority: str = "normal") -> bool:
 - Ensure American English spelling (e.g., "behavior", not "behaviour")
 - Do NOT use Sphinx-style double backtick formatting (` ``code`` `). Use single backticks (`code`) for inline code references in docstrings and comments.
 
+### Code formatting and linting standards
+
+#### Formatter & Linter Configuration
+
+This project uses **Ruff** for linting and **Black** for code formatting:
+
+- **Line length**: 88 characters (Black default)
+- **Indentation**: 4 spaces
+- **String quotes**: Double quotes (enforced by Ruff)
+- **Trailing comma**: Handled by Ruff formatter
+
+#### Editor & IDE Setup
+
+**VSCode Settings** (recommended):
+```json
+{
+  "editor.defaultFormatter": "ms-python.black-formatter",
+  "editor.formatOnSave": true,
+  "editor.tabSize": 4,
+  "editor.insertSpaces": true,
+  "editor.rulers": [88],
+  "editor.fontFamily": "'Ubuntu Mono', 'DejaVu Sans Mono', monospace",
+  "editor.fontSize": 16
+}
+```
+
+**Makefile Commands**:
+```bash
+make lint      # Run Ruff linter
+make format    # Run Ruff formatter (auto-fix)
+```
+
+**Individual Linting**:
+```bash
+cd libs/[package-name]
+uv run ruff check --fix .        # Lint and fix
+uv run ruff format .             # Format code
+uv run ty check                  # Type checking
+```
+
+#### Developer Code Style Profile
+
+Your personal coding preferences are stored in the memory system:
+
+```json
+{
+  "code_style": {
+    "formatter": "black",
+    "line_length": 88,
+    "tab_size": 4,
+    "editor": "vscode",
+    "editor_settings": {
+      "fontFamily": "Ubuntu Mono",
+      "fontSize": 16,
+      "rulers": [88],
+      "formatOnSave": true
+    }
+  }
+}
+```
+
+**To view or update your code style preferences**, use the memory system:
+```bash
+/memory profile          # View current code style
+/memory add "Coding style preference: ..."  # Add new preference
+```
+
+#### Ruff Rule Customization
+
+- Use inline `# noqa: RULE` for specific line exceptions (preferred)
+- Reserve `[tool.ruff.lint.per-file-ignores]` for categorical policies only
+- Example of good practice:
+  ```python
+  timeout = 30  # noqa: PLR2004  # HTTP timeout constant, not arbitrary
+  ```
+
+### Naming conventions and variable standards
+
+#### Naming Convention Rules
+
+Consistent, descriptive naming is critical for code readability and maintainability. Follow these strict rules:
+
+**Variable and Function Names**: Always use `camelCase`
+```javascript
+// Good
+const userData = await fetchUserData();
+const itemListLength = fetchItemList().length;
+
+// Bad - avoid abbreviations and single letters
+const d = getData();
+const lst = getList();
+```
+
+**Boolean Variables**: Always prefix with `is`, `has`, or `can` (must be truthiness-indicating)
+```javascript
+// Good
+const isValid = validateInput(data);
+const hasError = checkForErrors(result);
+const canFetch = isConnected && !isLoading;
+
+// Bad - ambiguous
+const valid = validateInput(data);
+const error = checkForErrors(result);
+const fetch = shouldFetch();
+```
+
+**Constants**: Always use `UPPER_SNAKE_CASE`
+```javascript
+// Good
+const MAX_RETRY_ATTEMPTS = 3;
+const DEFAULT_TIMEOUT_MS = 5000;
+
+// Bad
+const maxRetryAttempts = 3;
+const max_retry_attempts = 3;
+```
+
+**Classes**: Always use `PascalCase`
+```javascript
+// Good
+class UserManager {
+  constructor() {}
+}
+
+class DataProcessor {
+  process() {}
+}
+
+// Bad
+class userManager {}
+class data_processor {}
+```
+
+#### Semantic Clarity Principles
+
+**Avoid ambiguous variable names completely:**
+
+| ❌ Bad | ✅ Good | Why |
+|--------|---------|-----|
+| `temp`, `tmp` | `intermediateValue`, `accumulatedTotal` | Clarifies purpose |
+| `data`, `obj` | `userData`, `userConfig`, `responsePayload` | Specific type/domain |
+| `d`, `i`, `x` | `userData`, `itemIndex`, `xCoordinate` | Full words preferred |
+| `btn` | `submitButton` | No abbreviations |
+| `idx` | `itemIndex`, `arrayIndex` | Spell it out |
+| `msg` | `errorMessage`, `statusNotification` | Be explicit |
+| `str` | `formattedString`, `serializedData` | Describe the string |
+
+#### Function Design Principles
+
+Each function should have **a single, well-defined responsibility**:
+
+```javascript
+// Bad - does too many things
+const processUserData = (userData) => {
+  const validated = validateData(userData);
+  const stored = saveToDatabase(validated);
+  const notified = sendNotification(stored);
+  const logged = logAction(notified);
+  return logged;
+};
+
+// Good - each function has one job
+const validateUserData = (userData) => {
+  return schema.validate(userData);
+};
+
+const saveUserToDAtabase = (validatedUser) => {
+  return database.insert(validatedUser);
+};
+
+const notifyUserCreated = (user) => {
+  return emailService.send(user.email, "Welcome!");
+};
+
+// Orchestrate them at the call site
+const createdUser = await validateUserData(userData);
+await saveUserToDatabase(createdUser);
+await notifyUserCreated(createdUser);
+```
+
+#### Comment Guidelines
+
+- **Comments should explain the "why", not the "what"** - code should be self-explanatory
+- **Keep function-level comments brief** - place them at the function definition
+- **Avoid inline comments** unless logic is genuinely complex
+- **Never comment obvious code**
+
+```javascript
+// Bad - comments explain what the code does
+const items = list.filter(item => item.active);  // get active items
+const total = items.reduce((sum, item) => sum + item.price, 0);  // sum prices
+
+// Good - code is self-explanatory, comment explains context
+const activeItems = list.filter(item => item.active);
+const totalPrice = activeItems.reduce((sum, item) => sum + item.price, 0);
+
+// Good - comment explains business rule ("why")
+const applicableDiscount = (price) => {
+  // Bulk orders (100+ items) get 15% discount per business policy
+  if (quantity >= 100) {
+    return price * 0.85;
+  }
+  return price;
+};
+```
+
+#### Language-Specific Conventions
+
+##### JavaScript / TypeScript
+
+- **Prefer arrow functions**: `const func = () => {}`
+- **Prefer `const` by default**, `let` only when value changes
+- **Avoid `var`** entirely in modern code
+- **Use `async/await`** for asynchronous operations (not `.then()`)
+- **Destructure parameters** when possible for clarity
+
+```javascript
+// Good pattern - aligns with modern JS standards
+const fetchAndProcessUsers = async () => {
+  const { users, error } = await fetchUserList();
+
+  if (hasError(error)) {
+    handleError(error);
+    return;
+  }
+
+  const processedUsers = users.map(user => transformUserData(user));
+  return processedUsers;
+};
+
+// Bad pattern - mixing styles, unclear naming
+var result = getUserList();
+result.then(res => {
+  var users = res.map(u => transform(u));
+  return users;
+});
+```
+
+##### Python
+
+- **Use `snake_case`** for variables and functions (PEP 8)
+- **Use `UPPER_SNAKE_CASE`** for constants
+- **Use `CapitalizedWords`** (PascalCase) for classes
+- **Prefix boolean functions** with `is_`, `has_`, `can_` or prefix boolean variables similarly
+
+```python
+# Good - follows PEP 8 conventions
+def validate_user_data(user_data: dict) -> bool:
+    is_valid = schema.validate(user_data)
+    has_required_fields = all(field in user_data for field in REQUIRED_FIELDS)
+    return is_valid and has_required_fields
+
+# Bad - violates PEP 8
+def ValidateUserData(userData):
+    valid = schema.validate(userData)
+    fields = all(f in userData for f in required_fields)
+    return valid and fields
+```
+
+#### Real-World Examples
+
+**Scenario: Fetching and displaying user list**
+
+```javascript
+// Bad
+const d = await fetchData();
+if (d) {
+  console.log(d);
+}
+
+const lst = d.map(item => { return item; });
+for (let i = 0; i < lst.length; i++) {
+  processItem(lst[i]);
+}
+
+// Good
+const fetchedUserList = await fetchUserList();
+
+if (hasUserList(fetchedUserList)) {
+  displayUserList(fetchedUserList);
+}
+
+const processedUsers = fetchedUserList.map(user => transformUserData(user));
+processedUsers.forEach(processedUser => applyUserProfile(processedUser));
+```
+
 ## Package-specific guidance
+
+
 
 ### Deep Agents CLI (`libs/cli/`)
 

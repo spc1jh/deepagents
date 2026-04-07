@@ -452,7 +452,296 @@ rm -rf ~/.deepagents/memory/
 
 ---
 
+## 💻 코딩 스타일 저장 및 관리
+
+당신의 코딩 스타일 설정을 메모리 시스템에 저장하고 관리할 수 있습니다. 이렇게 하면 개인 환경설정이 체계적으로 보존되고, 추후 여러 기기에서 일관된 스타일을 유지할 수 있습니다.
+
+### 코딩 스타일이란?
+
+코딩 스타일에는 다음이 포함됩니다:
+- **포매터 설정**: Black, Ruff 등
+- **에디터 설정**: VSCode, PyCharm 등
+- **라인 길이**, **들여쓰기**, **폰트** 등
+- **린트 규칙** 및 **타입 체크** 설정
+
+### 저장된 코딩 스타일 확인하기
+
+```bash
+/memory profile
+```
+
+**출력 예**:
+```
+Developer Profile:
+  Name: Developer
+  Role: Software Developer
+  Experience: mid
+  Languages: python, javascript
+  Frameworks: fastapi, react
+
+  Code Style:
+    Formatter: black
+    Line Length: 88
+    Tab Size: 4
+    Editor: vscode
+    Font: Ubuntu Mono (16pt)
+    Format on Save: ON
+    Rulers: 88
+```
+
+### 코딩 스타일 저장하기
+
+학습 추가를 통해 코딩 스타일 선호도를 저장할 수 있습니다:
+
+```bash
+# VSCode 설정 저장
+/memory add "VSCode settings: Black formatter, 88 line length, Ubuntu Mono 16pt"
+
+# Ruff 린트 규칙 저장
+/memory add "Ruff rule: Always use inline #noqa for specific exceptions"
+
+# 개발 규칙 저장
+/memory add "Coding standard: Always add type hints to all functions"
+
+# 포매팅 규칙 저장
+/memory add "Google-style docstrings with Args section for all public functions"
+```
+
+### 코딩 스타일 검색하기
+
+```bash
+# VSCode 설정 검색
+/memory search "vscode"
+
+# 인덴트 관련 설정
+/memory search "tab"
+
+# 서식 관련 항목
+/memory search "format"
+
+# 린트 규칙
+/memory search "ruff"
+
+# 타입 체크
+/memory search "type hint"
+```
+
+### 실제 사용 예시
+
+#### 시나리오: 새로운 프로젝트 시작
+
+```bash
+# 1. 프로필 확인 (저장된 코딩 스타일 확인)
+/memory profile
+
+# 2. 선호 스타일 관련 학습 찾기
+/memory search "vscode"
+/memory search "black"
+
+# 3. 발견한 규칙 적용
+# (프로젝트의 pyproject.toml에 적용)
+
+# 4. 새로운 학습 추가 (프로젝트별 규칙)
+/memory add "이 프로젝트: Pydantic v2 사용, strict mode ON"
+/memory add "이 프로젝트: FastAPI 3.0 호환"
+```
+
+#### 시나리오: 팀원과 코딩 스타일 공유
+
+```bash
+# 1. 내 코딩 스타일 내보내기
+/memory export
+
+# 2. 생성된 JSON 파일 공유
+# ~/.deepagents/memory_export_*.json
+
+# 3. 팀원들이 해당 파일을 참고하여 자신의 설정 구성
+```
+
+### 코딩 스타일 저장 베스트 프랙티스
+
+#### ✅ Good 예시
+
+```bash
+# 구체적인 설정
+/memory add "VSCode: editor.defaultFormatter = ms-python.black-formatter"
+
+# 규칙과 이유
+/memory add "Type hints: 모든 함수에 필수. IDE 자동완성과 타입 검사 지원"
+
+# 프로젝트별 설정
+/memory add "FastAPI 프로젝트: Pydantic BaseModel 상속 필수"
+
+# 린트 규칙과 예외
+/memory add "Ruff: PLR2004 무시할 때는 #noqa: PLR2004 + 이유 주석"
+```
+
+#### ❌ Bad 예시
+
+```bash
+# 너무 일반적
+/memory add "코딩 스타일"
+
+# 설정 값 없음
+/memory add "Black 사용"
+
+# 비구체적
+/memory add "뭔가 포매팅하기"
+```
+
+### 메모리 시스템의 code_style 필드
+
+개발자 프로필 JSON에 저장되는 `code_style` 구조:
+
+```json
+{
+  "code_style": {
+    "formatter": "black",
+    "line_length": 88,
+    "tab_size": 4,
+    "editor": "vscode",
+    "editor_settings": {
+      "fontFamily": "Ubuntu Mono",
+      "fontSize": 16,
+      "rulers": [88],
+      "formatOnSave": true,
+      "defaultFormatter": "ms-python.black-formatter"
+    },
+    "linting": {
+      "tool": "ruff",
+      "rules": {
+        "select": "ALL",
+        "ignore": ["COM812", "ISC001", "SLF001"]
+      }
+    },
+    "type_checking": {
+      "tool": "ty",
+      "strict_mode": true
+    }
+  }
+}
+```
+
+#### 변수명 및 네이밍 규칙
+
+변수명 규칙도 메모리에 저장하고 관리할 수 있습니다. 개발하면서 일관된 명명 규칙을 유지하려면 언어별 규칙을 저장해 두는 것이 효과적입니다.
+
+**변수명 규칙 저장하기**:
+
+```bash
+# JavaScript/TypeScript 규칙 저장
+/memory add "JavaScript: Variable names use camelCase (e.g., userData, fetchItemList)"
+/memory add "JavaScript: Boolean variables must have is/has/can prefix (e.g., isValid, hasError)"
+/memory add "JavaScript: Constants use UPPER_SNAKE_CASE (e.g., MAX_RETRY_ATTEMPTS)"
+/memory add "JavaScript: Classes use PascalCase (e.g., UserManager)"
+
+# Python 규칙 저장
+/memory add "Python: Variables and functions use snake_case (PEP 8)"
+/memory add "Python: Constants use UPPER_SNAKE_CASE"
+/memory add "Python: Classes use PascalCase"
+/memory add "Python: Boolean functions/variables prefix with is_, has_, can_"
+
+# 공통 규칙 저장
+/memory add "Naming rule: Never use single letters (d, i, x) or abbreviations (btn, idx, msg)"
+/memory add "Naming rule: Use full descriptive names - userData not data, submitButton not btn"
+/memory add "Naming rule: Avoid ambiguous terms - use intermediateValue instead of temp"
+```
+
+**변수명 규칙 검색하기**:
+
+```bash
+# JavaScript 규칙 검색
+/memory search "camelCase"
+/memory search "PascalCase"
+
+# Python 규칙 검색
+/memory search "snake_case"
+
+# 공통 네이밍 규칙
+/memory search "abbreviation"
+/memory search "naming rule"
+```
+
+**함수 설계 원칙 저장하기**:
+
+```bash
+# 함수 단일 책임 원칙
+/memory add "Function design: Each function should have a single, well-defined responsibility"
+
+# 주석 가이드
+/memory add "Comments: Explain the 'why', not the 'what' - code should be self-explanatory"
+/memory add "Comments: Keep function-level comments brief, only at the top"
+```
+
+**실제 사용 예시**:
+
+```bash
+# Bad 네이밍 예시 저장
+/memory add "Bad naming: const d = getData(); const lst = data.map(...)"
+
+# Good 네이밍 예시 저장
+/memory add "Good naming: const fetchedUserList = await fetchUserList(); const processedUsers = fetchedUserList.map(...)"
+
+# 검색해서 활용
+/memory search "bad naming"
+/memory search "good naming"
+```
+
+**메모리 시스템의 naming_conventions 필드**:
+
+개발자 프로필에 저장되는 `naming_conventions` 구조:
+
+```json
+{
+  "naming_conventions": {
+    "primary_language": "javascript",
+    "conventions": {
+      "variable": "camelCase",
+      "function": "camelCase",
+      "boolean": {
+        "prefix": ["is", "has", "can"],
+        "example": "isValid, hasError, canFetch"
+      },
+      "constant": "UPPER_SNAKE_CASE",
+      "class": "PascalCase",
+      "abbreviations": "forbidden",
+      "single_letters": "forbidden"
+    },
+    "language_specific": {
+      "javascript": {
+        "prefer_arrow_functions": true,
+        "prefer_const": true,
+        "use_async_await": true
+      },
+      "python": {
+        "style": "PEP 8",
+        "variable": "snake_case",
+        "class": "PascalCase",
+        "constant": "UPPER_SNAKE_CASE",
+        "boolean_prefix": ["is_", "has_", "can_"]
+      }
+    },
+    "semantic_clarity": {
+      "no_temp_variables": true,
+      "no_abbreviations": true,
+      "descriptive_names_required": true,
+      "bad_examples": ["temp", "tmp", "data", "obj", "d", "i", "btn", "idx", "msg"],
+      "good_practice": "Use full, descriptive names that clarify purpose"
+    },
+    "single_responsibility": {
+      "one_function_one_purpose": true,
+      "break_complex_functions": true,
+      "max_lines_per_function": 20
+    }
+  }
+}
+```
+
+---
+
 ## 🚀 향후 기능 (계획 중)
+
+
 
 - [ ] 자동 학습 기록: 에이전트가 사용자 피드백 감지 시 자동 저장
 - [ ] 학습 동기화: 여러 장치 간 메모리 클라우드 동기화
