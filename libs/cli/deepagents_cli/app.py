@@ -15,7 +15,6 @@ import webbrowser
 from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -2857,25 +2856,26 @@ class DeepAgentsApp(App):
         with suppress(NoMatches, ScreenStackError):
             self.query_one("#chat", VerticalScroll).anchor()
 
-    async def _handle_memory_command(self, command: str) -> None:
-        """Handle memory management commands.
+    async def _handle_memory_command(self, command: str) -> None:  # noqa: C901
+        """Handle 3-layer memory management commands.
 
         Supports:
-        - `/memory add "Learning text"` - Add a learning
-        - `/memory search "query"` - Search learnings
-        - `/memory profile` - View/edit developer profile
-        - `/memory export` - Export memory to JSON
-        - `/memory stats` - View memory statistics
+        - `/memory user "content"` - Save to user/profile layer (global AGENTS.md)
+        - `/memory project "content"` - Save to project/context layer (local .deepagents/AGENTS.md)
+        - `/memory domain "skill-name" "content"` - Save to domain/knowledge layer (skill file)
+        - `/memory show [user|project|domain]` - Display layer contents
+        - `/memory search "query"` - Search across all layers
+        - `/memory correct "old" "new" user|project|domain` - Correct an entry
+        - `/memory stats` - Show statistics for all three layers
 
         Args:
-            command: The full command string (e.g., `/memory add "Python best practice"`)
+            command: The full command string (e.g., `/memory user "always use type hints"`)
         """
         from deepagents_cli.memory_manager import MemoryManager
 
         await self._mount_message(UserMessage(command))
 
-        cmd = command.lower().strip()
-        args = command.strip()[len("/memory") :].strip()
+        args = command.strip()[len("/memory"):].strip()
 
         try:
             manager = MemoryManager()
@@ -2883,129 +2883,191 @@ class DeepAgentsApp(App):
             if not args:
                 await self._mount_message(
                     AppMessage(
-                        "Usage:\n"
-                        "  /memory add \"Learning text\"\n"
+                        "Memory layers:\n"
+                        "  /memory user \"preference\"         → ~/.deepagents/agent/AGENTS.md\n"
+                        "  /memory project \"rule\"            → .deepagents/AGENTS.md\n"
+                        "  /memory domain \"skill\" \"fact\"   → ~/.deepagents/agent/skills/<skill>/SKILL.md\n"
+                        "  /memory show [user|project|domain]\n"
                         "  /memory search \"query\"\n"
-                        "  /memory profile\n"
-                        "  /memory export\n"
+                        "  /memory correct \"old\" \"new\" user|project|domain\n"
                         "  /memory stats"
                     )
                 )
                 return
 
-            # Parse subcommand
             parts = args.split(maxsplit=1)
             subcommand = parts[0].lower()
-            subargs = parts[1] if len(parts) > 1 else ""
+            subargs = parts[1].strip() if len(parts) > 1 else ""
 
-            if subcommand == "add":
-                # /memory add "Learning text"
+            if subcommand == "user":
+                # /memory user "preference text"
                 if not subargs:
-                    await self._mount_message(AppMessage("Usage: /memory add \"Learning text\""))
+                    await self._mount_message(AppMessage("Usage: /memory user \"preference text\""))
                     return
-
-                # Extract quoted or unquoted text
-                if subargs.startswith('"') and subargs.endswith('"'):
-                    text = subargs[1:-1]
-                else:
-                    text = subargs
-
-                if not text.strip():
-                    await self._mount_message(AppMessage("Learning text cannot be empty."))
+                text = subargs.strip('"')
+                if not text:
+                    await self._mount_message(AppMessage("Content cannot be empty."))
                     return
-
-                learning_id = manager.add_learning(
-                    content=text,
-                    source="user_feedback",
-                    category="best_practice",
-                    tags=["manual"],
-                    session_id=self._lc_thread_id,
-                )
+                manager.user.append(text)
                 await self._mount_message(
-                    AppMessage(f"✓ Learning added (ID: {learning_id[:8]})")
+                    AppMessage(f"✓ Saved to user/profile layer\n  → {manager.user.path}")
                 )
+
+            elif subcommand == "project":
+                # /memory project "project rule"
+                if not subargs:
+                    await self._mount_message(AppMessage("Usage: /memory project \"project rule\""))
+                    return
+                text = subargs.strip('"')
+                if not text:
+                    await self._mount_message(AppMessage("Content cannot be empty."))
+                    return
+                manager.project.append(text)
+                await self._mount_message(
+                    AppMessage(f"✓ Saved to project/context layer\n  → {manager.project.path}")
+                )
+
+            elif subcommand == "domain":
+                # /memory domain "skill-name" "fact"
+                domain_parts = subargs.split(maxsplit=1)
+                if len(domain_parts) < 2:  # noqa: PLR2004
+                    await self._mount_message(
+                        AppMessage("Usage: /memory domain \"skill-name\" \"domain fact\"")
+                    )
+                    return
+                skill_name = domain_parts[0].strip('"')
+                fact = domain_parts[1].strip('"')
+                if not skill_name or not fact:
+                    await self._mount_message(AppMessage("Skill name and fact cannot be empty."))
+                    return
+                skill_file = manager.domain.append(skill_name, fact)
+                await self._mount_message(
+                    AppMessage(f"✓ Saved to domain/knowledge layer\n  → {skill_file}")
+                )
+
+            elif subcommand == "show":
+                # /memory show [user|project|domain]
+                layer = subargs.lower().strip() if subargs else "all"
+
+                if layer in ("user", "all"):
+                    content = manager.user.load()
+                    header = f"── user/profile ({manager.user.path}) ──"
+                    body = content.strip() if content.strip() else "(empty)"
+                    await self._mount_message(AppMessage(f"{header}\n{body}"))
+
+                if layer in ("project", "all"):
+                    content = manager.project.load()
+                    header = f"── project/context ({manager.project.path}) ──"
+                    body = content.strip() if content.strip() else "(empty)"
+                    await self._mount_message(AppMessage(f"{header}\n{body}"))
+
+                if layer in ("domain", "all"):
+                    skills = manager.domain.list_skills()
+                    if not skills:
+                        await self._mount_message(
+                            AppMessage(f"── domain/knowledge ({manager.domain.skills_dir}) ──\n(no skills yet)")
+                        )
+                    else:
+                        for skill_name in skills:
+                            content = manager.domain.load(skill_name)
+                            await self._mount_message(
+                                AppMessage(f"── domain/{skill_name} ──\n{content.strip()}")
+                            )
+
+                if layer not in ("user", "project", "domain", "all"):
+                    await self._mount_message(
+                        AppMessage(f"Unknown layer: {layer}. Use user, project, domain, or omit for all.")
+                    )
 
             elif subcommand == "search":
                 # /memory search "query"
                 if not subargs:
                     await self._mount_message(AppMessage("Usage: /memory search \"query\""))
                     return
+                query = subargs.strip('"')
+                results = manager.search_all(query)
 
-                # Extract query
-                if subargs.startswith('"') and subargs.endswith('"'):
-                    query = subargs[1:-1]
-                else:
-                    query = subargs
-
-                results = manager.search_learnings(query, limit=5)
-                if not results:
-                    await self._mount_message(AppMessage(f"No learnings found matching: {query}"))
+                total = sum(len(v) for v in results.values())
+                if total == 0:
+                    await self._mount_message(AppMessage(f"No entries found matching: {query}"))
                     return
 
-                output = f"Found {len(results)} learnings:\n\n"
-                for i, learning in enumerate(results, 1):
-                    date = learning["created_at"][:10]
-                    output += (
-                        f"{i}. [{date}] {learning['content'][:80]}\n"
-                        f"   Category: {learning['category']}\n\n"
-                    )
-
+                output = f"Found {total} entries for \"{query}\":\n"
+                for layer_name, entries in results.items():
+                    if entries:
+                        output += f"\n[{layer_name}]\n"
+                        for entry in entries:
+                            output += f"  {entry}\n"
                 await self._mount_message(AppMessage(output.rstrip()))
 
-            elif subcommand == "profile":
-                # /memory profile - View current profile
-                profile = manager.load_or_create_profile()
-                profile_text = (
-                    f"Developer Profile:\n"
-                    f"  Name: {profile.get('name', 'Unknown')}\n"
-                    f"  Role: {profile.get('role', 'Unknown')}\n"
-                    f"  Experience: {profile.get('experience_level', 'Unknown')}\n"
-                    f"  Languages: {', '.join(profile.get('primary_languages', []))}\n"
-                    f"  Frameworks: {', '.join(profile.get('preferred_frameworks', []))}\n"
-                    f"  Updated: {profile.get('updated_at', 'Never')[:10]}"
-                )
-                await self._mount_message(AppMessage(profile_text))
+            elif subcommand == "correct":
+                # /memory correct "old text" "new text" user|project|domain[/skill]
+                correct_parts = subargs.split('"')
+                # Expected: "" old_text "" "" new_text "" layer
+                quoted = [p for p in correct_parts if p.strip() and not p.strip() == " "]
+                if len(quoted) < 2:  # noqa: PLR2004
+                    await self._mount_message(
+                        AppMessage("Usage: /memory correct \"old text\" \"new text\" user|project|domain[/skill-name]")
+                    )
+                    return
+                old_text = quoted[0]
+                new_text = quoted[1]
+                layer_spec = subargs.split('"')[-1].strip().lower()
 
-            elif subcommand == "export":
-                # /memory export - Export to JSON
-                export_path = (
-                    Path.home() / ".deepagents" / f"memory_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-                )
+                if layer_spec == "user":
+                    ok = manager.user.correct(old_text, new_text)
+                elif layer_spec == "project":
+                    ok = manager.project.correct(old_text, new_text)
+                elif layer_spec.startswith("domain"):
+                    skill_part = layer_spec[len("domain"):].lstrip("/").strip()
+                    if not skill_part:
+                        await self._mount_message(
+                            AppMessage("Specify skill name: domain/skill-name")
+                        )
+                        return
+                    ok = manager.domain.correct(skill_part, old_text, new_text)
+                else:
+                    await self._mount_message(
+                        AppMessage(f"Unknown layer: {layer_spec}. Use user, project, or domain/skill-name.")
+                    )
+                    return
 
-                def _export() -> None:
-                    manager.export_memory(export_path)
-
-                await asyncio.to_thread(_export)
-                await self._mount_message(
-                    AppMessage(f"✓ Memory exported to: {export_path}")
-                )
+                if ok:
+                    await self._mount_message(AppMessage(f"✓ Corrected entry in {layer_spec} layer."))
+                else:
+                    await self._mount_message(
+                        AppMessage(f"Entry not found in {layer_spec} layer: \"{old_text}\"")
+                    )
 
             elif subcommand == "stats":
-                # /memory stats - Show statistics
-                def _get_stats() -> dict:
-                    return manager.get_memory_stats()
-
-                stats = await asyncio.to_thread(_get_stats)
-                stats_text = (
-                    f"Memory Statistics:\n"
-                    f"  Learnings: {stats['learnings_count']}\n"
-                    f"  Entities: {stats['entities_count']}\n"
-                    f"  Relationships: {stats['relationships_count']}\n"
-                    f"  Database Size: {stats['db_size_mb']:.2f} MB\n"
-                    f"  Location: {stats['memory_dir']}"
-                )
-
-                if stats["learnings_by_category"]:
-                    stats_text += "\n\n  By Category:\n"
-                    for cat, count in stats["learnings_by_category"].items():
-                        stats_text += f"    {cat}: {count}\n"
-
-                await self._mount_message(AppMessage(stats_text))
+                # /memory stats
+                stats_list = manager.all_stats()
+                lines = ["Memory Layer Statistics:\n"]
+                for stats in stats_list:
+                    layer = stats["layer"]
+                    if layer == "domain/knowledge":
+                        lines.append(
+                            f"  [{layer}]\n"
+                            f"    Skills directory: {stats['skills_dir']}\n"
+                            f"    Skills: {stats['skill_count']} ({', '.join(stats['skills']) or 'none'})\n"
+                            f"    Total entries: {stats['total_entries']}"
+                        )
+                    else:
+                        exists_mark = "✓" if stats["exists"] else "✗"
+                        lines.append(
+                            f"  [{layer}] {exists_mark}\n"
+                            f"    Path: {stats['path']}\n"
+                            f"    Entries: {stats['entry_count']}\n"
+                            f"    Size: {stats['size_bytes']} bytes"
+                        )
+                await self._mount_message(AppMessage("\n".join(lines)))
 
             else:
                 await self._mount_message(
-                    AppMessage(f"Unknown subcommand: {subcommand}\n"
-                        "Usage: /memory add|search|profile|export|stats")
+                    AppMessage(
+                        f"Unknown subcommand: {subcommand}\n"
+                        "Use: user | project | domain | show | search | correct | stats"
+                    )
                 )
 
         except Exception as exc:
